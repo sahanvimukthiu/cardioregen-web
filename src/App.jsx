@@ -1,164 +1,286 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import axios from 'axios';
 import HeartViewer from './HeartViewer';
-import { Heart, Upload, Activity, Server, AlertCircle } from 'lucide-react';
+import { Heart, Upload, Server, AlertCircle, FileText, Activity, X } from 'lucide-react';
 
 function App() {
+  // Connection State
   const [backendUrl, setBackendUrl] = useState('');
-  const [file, setFile] = useState(null);
+  
+  // File States
+  const [fileED, setFileED] = useState(null);
+  const [fileES, setFileES] = useState(null);
+  
+  // Refs to control the file inputs (needed to clear them)
+  const edInputRef = useRef(null);
+  const esInputRef = useRef(null);
+  
+  // Processing States
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
+  const [statusMsg, setStatusMsg] = useState('');
   const [error, setError] = useState('');
 
-  const handleAnalyze = async () => {
-    if (!file || !backendUrl) {
-      setError("Please provide both the Backend URL and a valid .nii.gz file.");
-      return;
-    }
-    setLoading(true);
-    setError('');
-    setResult(null);
+  // Results State
+  const [results, setResults] = useState({
+    ed: null, // Stores volume & mesh for ED
+    es: null, // Stores volume & mesh for ES
+    ef: null  // Calculated EF
+  });
 
+  // --- Helper Functions ---
+
+  // Call API for a single file
+  const processFile = async (file, url) => {
     const formData = new FormData();
     formData.append('file', file);
+    const cleanUrl = url.replace(/\/$/, "");
+    const res = await axios.post(`${cleanUrl}/analyze`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return res.data;
+  };
+
+  // Clear ED File
+  const clearFileED = () => {
+    setFileED(null);
+    if (edInputRef.current) edInputRef.current.value = ""; // Reset the input value
+  };
+
+  // Clear ES File
+  const clearFileES = () => {
+    setFileES(null);
+    if (esInputRef.current) esInputRef.current.value = ""; // Reset the input value
+  };
+
+  const handleAnalyze = async () => {
+    if (!backendUrl) {
+      setError("Please enter the Server URL.");
+      return;
+    }
+    if (!fileED && !fileES) {
+      setError("Please upload at least one MRI file.");
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setStatusMsg('Initializing analysis...');
+    
+    // Temp storage
+    let newResults = { ...results, ef: null };
 
     try {
-      // Remove trailing slash if user added it
-      const cleanUrl = backendUrl.replace(/\/$/, "");
-      
-      // Send Request
-      const response = await axios.post(`${cleanUrl}/analyze`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      
-      setResult(response.data);
+      // 1. Process ED Frame
+      if (fileED) {
+        setStatusMsg(`Processing ED Frame: ${fileED.name}...`);
+        const dataED = await processFile(fileED, backendUrl);
+        newResults.ed = { ...dataED, filename: fileED.name };
+      }
+
+      // 2. Process ES Frame
+      if (fileES) {
+        setStatusMsg(`Processing ES Frame: ${fileES.name}...`);
+        const dataES = await processFile(fileES, backendUrl);
+        newResults.es = { ...dataES, filename: fileES.name };
+      }
+
+      // 3. Calculate EF if both exist
+      if (newResults.ed && newResults.es) {
+        const edv = newResults.ed.lv_volume_ml;
+        const esv = newResults.es.lv_volume_ml;
+        const ef = ((edv - esv) / edv) * 100;
+        newResults.ef = ef.toFixed(2);
+      }
+
+      setResults(newResults);
+      setStatusMsg('');
+
     } catch (err) {
       console.error(err);
-      setError("Connection Failed. 1. Check if Colab is running. 2. Verify URL. 3. Ensure file is .nii.gz");
+      setError("Analysis Failed. Check your URL and if the Colab is running.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f8f9fa', padding: '2rem', fontFamily: 'Arial, sans-serif' }}>
-      <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', fontFamily: 'Inter, system-ui, sans-serif', overflow: 'hidden' }}>
+      
+      {/* --- LEFT SIDEBAR (Controls & Data) --- */}
+      <div style={{ width: '400px', background: '#f8f9fa', borderRight: '1px solid #e9ecef', padding: '2rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
         
         {/* Header */}
-        <header style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '2rem' }}>
-          <div style={{ background: '#ff4444', padding: '10px', borderRadius: '50%', display: 'flex' }}>
-            <Heart color="white" size={28} fill="white" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
+          <div style={{ background: '#ff4444', padding: '8px', borderRadius: '8px' }}>
+            <Heart color="white" size={24} fill="white" />
           </div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: '1.8rem', color: '#333' }}>CardiRegen 3D</h1>
-            <span style={{ fontSize: '0.9rem', color: '#666' }}>Automated Cardiac MRI Analysis System</span>
-          </div>
-        </header>
+          <h1 style={{ fontSize: '1.25rem', fontWeight: '800', margin: 0, color: '#212529' }}>CardiRegen 3D</h1>
+        </div>
 
-        {/* 1. Connection Setup */}
-        <section style={{ background: 'white', padding: '1.5rem', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '1.5rem' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 10px 0' }}>
-            <Server size={18} color="#007bff"/> Server Connection
+        {/* 1. Connection */}
+        <section style={{ background: 'white', padding: '15px', borderRadius: '12px', border: '1px solid #dee2e6' }}>
+          <h3 style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 8px 0', color: '#495057' }}>
+            <Server size={16} /> Server Connection
           </h3>
-          <p style={{ fontSize: '0.9rem', color: '#666', marginBottom: '8px' }}>
-            Paste the <b>ngrok URL</b> from your Google Colab here:
-          </p>
           <input 
             type="text" 
-            placeholder="e.g. https://flexile-irresistible-arnold.ngrok-free.dev" 
+            placeholder="Paste ngrok URL here..." 
             value={backendUrl}
             onChange={(e) => setBackendUrl(e.target.value)}
-            style={{ width: '100%', padding: '12px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '1rem' }}
+            style={{ width: '94%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #ced4da', fontSize: '0.8rem', height: '36px' }}
           />
         </section>
 
-        {/* 2. Upload Section */}
-        <section style={{ background: 'white', padding: '2rem', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', textAlign: 'center', marginBottom: '1.5rem' }}>
-          <div style={{ border: '2px dashed #ccc', borderRadius: '8px', padding: '2rem', background: '#fafafa' }}>
-            <Upload size={48} color="#aaa" style={{ marginBottom: '10px' }} />
-            <h3 style={{ margin: '0 0 5px 0', color: '#444' }}>Upload Cardiac MRI</h3>
-            <p style={{ color: '#888', fontSize: '0.9rem' }}>Supported Format: <b>.nii.gz</b></p>
+        {/* 2. Uploads */}
+        <section style={{ background: 'white', padding: '15px', borderRadius: '12px', border: '1px solid #dee2e6' }}>
+          <h3 style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 15px 0', color: '#495057' }}>
+            <Upload size={16} /> Patient Data Upload
+          </h3>
+          
+          {/* ED Input */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: '600', display: 'block', marginBottom: '8px', color: '#333' }}>
+              Upload End-Diastole (ED) Frame
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <input 
+                ref={edInputRef} 
+                type="file" 
+                accept=".nii,.gz" 
+                onChange={(e) => setFileED(e.target.files[0])} 
+                style={{ fontSize: '0.8rem', width: '100%' }} 
+              />
+              <span style={{ fontSize: '0.75rem', color: '#868e96', whiteSpace: 'nowrap' }}>Supported: .nii.gz</span>
+            </div>
             
-            <input 
-              type="file" 
-              accept=".nii,.gz"
-              onChange={(e) => setFile(e.target.files[0])}
-              style={{ marginTop: '15px' }}
-            />
-            
-            {file && (
-              <div style={{ marginTop: '15px', color: '#2e7d32', fontWeight: 'bold' }}>
-                Selected: {file.name}
+            {/* Selected File Display + Remove Icon */}
+            {fileED && (
+              <div style={{ marginTop: '5px', fontSize: '0.8rem', color: '#2f9e44', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                 <span>Selected: {fileED.name}</span>
+                 <X 
+                    size={14} 
+                    color="#dc2626" 
+                    style={{ cursor: 'pointer', background: '#fee2e2', borderRadius: '50%', padding: '2px' }} 
+                    onClick={clearFileED} 
+                    title="Remove file"
+                 />
               </div>
             )}
           </div>
 
-          {error && (
-            <div style={{ marginTop: '15px', padding: '10px', background: '#ffebee', color: '#c62828', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <AlertCircle size={18} /> {error}
+          {/* ES Input */}
+          <div>
+            <label style={{ fontSize: '0.85rem', fontWeight: '600', display: 'block', marginBottom: '8px', color: '#333' }}>
+              Upload End-Systole (ES) Frame
+            </label>
+             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <input 
+                ref={esInputRef}
+                type="file" 
+                accept=".nii,.gz" 
+                onChange={(e) => setFileES(e.target.files[0])} 
+                style={{ fontSize: '0.8rem', width: '100%' }} 
+              />
+              <span style={{ fontSize: '0.75rem', color: '#868e96', whiteSpace: 'nowrap' }}>Supported: .nii.gz</span>
             </div>
-          )}
+            
+            {/* Selected File Display + Remove Icon */}
+            {fileES && (
+              <div style={{ marginTop: '5px', fontSize: '0.8rem', color: '#2f9e44', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                 <span>Selected: {fileES.name}</span>
+                 <X 
+                    size={14} 
+                    color="#dc2626" 
+                    style={{ cursor: 'pointer', background: '#fee2e2', borderRadius: '50%', padding: '2px' }} 
+                    onClick={clearFileES} 
+                    title="Remove file"
+                 />
+              </div>
+            )}
+          </div>
 
+          {/* Action Button */}
           <button 
             onClick={handleAnalyze}
-            disabled={loading || !file}
+            disabled={loading}
             style={{
-              marginTop: '20px', 
-              padding: '14px 30px', 
-              background: loading ? '#ccc' : '#007bff', 
-              color: 'white', 
-              border: 'none', 
-              borderRadius: '8px', 
-              fontSize: '1rem',
-              fontWeight: 'bold',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              transition: 'background 0.2s'
+              width: '100%', marginTop: '25px', padding: '12px', background: loading ? '#adb5bd' : '#228be6', 
+              color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: loading ? 'not-allowed' : 'pointer'
             }}
           >
-            {loading ? "Processing on GPU..." : "Run AI Analysis"}
+            {loading ? statusMsg : "Run Full Analysis"}
           </button>
+          
+          {error && <div style={{ marginTop: '10px', fontSize: '0.8rem', color: '#fa5252', display: 'flex', gap: '5px' }}><AlertCircle size={14}/> {error}</div>}
         </section>
 
-        {/* 3. Results Section */}
-        {result && (
-          <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+        {/* 3. Detailed Results */}
+        {(results.ed || results.es) && (
+          <section style={{ background: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #dee2e6', flex: 1 }}>
+            <h3 style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 15px 0', color: '#495057' }}>
+              <FileText size={16} /> Clinical Report
+            </h3>
             
-            {/* Metrics Card */}
-            <div style={{ background: 'white', padding: '1.5rem', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: 0 }}>
-                <Activity size={24} color="#007bff"/> Clinical Metrics
-              </h3>
+            <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '8px', fontFamily: 'monospace', fontSize: '0.85rem', color: '#333', lineHeight: '1.6' }}>
+              <div>--- Analyzing Patient Data ---</div>
               
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '20px' }}>
-                <div style={{ padding: '15px', background: '#f1f8e9', borderRadius: '8px', borderLeft: '4px solid #7cb342' }}>
-                  <small style={{ color: '#558b2f', fontWeight: 'bold' }}>LEFT VENTRICLE (LV) VOLUME</small>
-                  <div style={{ fontSize: '2rem', fontWeight: '800', color: '#33691e' }}>{result.lv_volume_ml} ml</div>
+              {results.ed && (
+                <>
+                  <div>ED Frame: {results.ed.filename}</div>
+                  <div style={{ color: '#2f9e44' }}>{'->'} ED Volume (LV): {results.ed.lv_volume_ml} ml</div>
+                </>
+              )}
+              
+              <div style={{ margin: '10px 0', borderBottom: '1px dashed #ccc' }}></div>
+              
+              {results.es && (
+                <>
+                  <div>ES Frame: {results.es.filename}</div>
+                  <div style={{ color: '#1971c2' }}>{'->'} ES Volume (LV): {results.es.lv_volume_ml} ml</div>
+                </>
+              )}
+              
+              <div style={{ margin: '15px 0' }}></div>
+              
+              {results.ef ? (
+                <div style={{ background: '#fff9db', padding: '10px', borderRadius: '4px', border: '1px solid #fcc419' }}>
+                  <div style={{ fontWeight: 'bold' }}>{">>>"} Calculated Ejection Fraction (EF):</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#e67700' }}>{results.ef}%</div>
                 </div>
-
-                <div style={{ padding: '15px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '4px solid #1e88e5' }}>
-                  <small style={{ color: '#1565c0', fontWeight: 'bold' }}>RIGHT VENTRICLE (RV) VOLUME</small>
-                  <div style={{ fontSize: '2rem', fontWeight: '800', color: '#0d47a1' }}>{result.rv_volume_ml} ml</div>
-                </div>
-              </div>
-            </div>
-
-            {/* 3D Model Card */}
-            <div style={{ background: 'white', padding: '1.5rem', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-              <h3 style={{ marginTop: 0 }}>Interactive 3D Reconstruction</h3>
-              {result.mesh_obj ? (
-                <HeartViewer objData={result.mesh_obj} />
               ) : (
-                <div style={{ padding: '40px', textAlign: 'center', color: '#888', background: '#f5f5f5', borderRadius: '8px' }}>
-                  No 3D mesh generated (Volume too small or empty mask).
+                <div style={{ color: '#868e96', fontStyle: 'italic' }}>
+                  * Upload both frames to calculate EF
                 </div>
               )}
-              <p style={{ textAlign: 'center', fontSize: '0.8rem', color: '#888', marginTop: '10px' }}>
-                Click & Drag to Rotate | Scroll to Zoom
-              </p>
             </div>
-
           </section>
         )}
+      </div>
+
+      {/* --- RIGHT SIDE (Main 3D Viewer) --- */}
+      <div style={{ flex: 1, background: '#101010', position: 'relative', display: 'flex', flexDirection: 'column' }}>
+        
+        {/* Viewer Area */}
+        <div style={{ flex: 1, width: '100%', height: '100%' }}>
+          {results.ed?.mesh_obj || results.es?.mesh_obj ? (
+            <HeartViewer objData={results.ed?.mesh_obj || results.es?.mesh_obj} />
+          ) : (
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
+              <Activity size={64} style={{ opacity: 0.2 }} />
+              <p style={{ marginTop: '20px', fontWeight: '500' }}>3D Model Viewport</p>
+              <p style={{ fontSize: '0.9rem', opacity: 0.6 }}>Upload data to generate reconstruction</p>
+            </div>
+          )}
+        </div>
+
+        {/* Legend Overlay */}
+        <div style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(0,0,0,0.7)', padding: '10px 15px', borderRadius: '20px', color: 'white', backdropFilter: 'blur(5px)' }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+             <div style={{ width: '10px', height: '10px', background: '#ff4444', borderRadius: '50%' }}></div>
+             Left Ventricle 3D Mesh
+          </div>
+        </div>
+
       </div>
     </div>
   );
