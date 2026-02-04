@@ -4,10 +4,10 @@ import HeartViewer from './HeartViewer';
 import { Heart, Upload, Server, AlertCircle, FileText, Activity, X } from 'lucide-react';
 
 function App() {
-  // Connection State
+  // The Connection State
   const [backendUrl, setBackendUrl] = useState('');
   
-  // File States
+  // The File States
   const [fileED, setFileED] = useState(null);
   const [fileES, setFileES] = useState(null);
   
@@ -22,14 +22,14 @@ function App() {
 
   // Results State
   const [results, setResults] = useState({
-    ed: null, // Stores volume & mesh for ED
-    es: null, // Stores volume & mesh for ES
-    ef: null  // Calculated EF
+    ed: null, // Stores volume & mesh for ED (End Diastolic)
+    es: null, // Stores volume & mesh for ES (End Systolic)
+    ef: null  // Calculated EF (Ejection Fraction)
   });
 
   // --- Helper Functions ---
 
-  // Call API for a single file
+  // Calling the API for a single file
   const processFile = async (file, url) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -40,13 +40,13 @@ function App() {
     return res.data;
   };
 
-  // Clear ED File
+  // Clear ED (End Diastolic) File
   const clearFileED = () => {
     setFileED(null);
     if (edInputRef.current) edInputRef.current.value = ""; // Reset the input value
   };
 
-  // Clear ES File
+  // Clear ES (End Systolic) File
   const clearFileES = () => {
     setFileES(null);
     if (esInputRef.current) esInputRef.current.value = ""; // Reset the input value
@@ -70,21 +70,21 @@ function App() {
     let newResults = { ...results, ef: null };
 
     try {
-      // 1. Process ED Frame
+      // 1. Process ED (End Diastolic) Frame
       if (fileED) {
         setStatusMsg(`Processing ED Frame: ${fileED.name}...`);
         const dataED = await processFile(fileED, backendUrl);
         newResults.ed = { ...dataED, filename: fileED.name };
       }
 
-      // 2. Process ES Frame
+      // 2. Process ES (End Systolic) Frame
       if (fileES) {
         setStatusMsg(`Processing ES Frame: ${fileES.name}...`);
         const dataES = await processFile(fileES, backendUrl);
         newResults.es = { ...dataES, filename: fileES.name };
       }
 
-      // 3. Calculate EF if both exist
+      // 3. Calculate EF (Ejection Fraction) if both exist
       if (newResults.ed && newResults.es) {
         const edv = newResults.ed.lv_volume_ml;
         const esv = newResults.es.lv_volume_ml;

@@ -32,7 +32,6 @@ const HeartMesh = ({ objData }) => {
 
 const HeartViewer = ({ objData }) => {
   return (
-    // CHANGE IS HERE: height is now '100%' and background is transparent to blend with parent
     <div style={{ height: '100%', width: '100%', background: 'transparent' }}>
       <Canvas shadows camera={{ position: [0, 0, 180], fov: 45 }}>
         <Stage environment="city" intensity={0.6}>
