@@ -12,7 +12,11 @@ const HeartMesh = ({ objData }) => {
       const group = loader.parse(objData);
       let meshGeometry = null;
       group.traverse((child) => {
-        if (child.isMesh) meshGeometry = child.geometry;
+        if (child.isMesh) {
+           meshGeometry = child.geometry;
+           //This forces Three.js to smooth the lighting across the blocky faces
+           meshGeometry.computeVertexNormals(); 
+        }
       });
       return meshGeometry;
     } catch (e) {
@@ -25,7 +29,14 @@ const HeartMesh = ({ objData }) => {
 
   return (
     <mesh geometry={geometry}>
-      <meshStandardMaterial color="#ff4444" roughness={0.3} metalness={0.1} />
+      <meshPhysicalMaterial 
+        color="#d63031"        /* A slightly deeper, more natural blood-red */
+        roughness={0.5}          /* Less perfectly smooth */
+        metalness={0.05}         /* Tissue isn't be metallic */
+        clearcoat={0.4}          /* Adds a subtle wet/shiny layer on top */
+        clearcoatRoughness={0.2} 
+        side={THREE.DoubleSide}  /* Ensures no invisible holes if the mesh is thin */
+      />
     </mesh>
   );
 };
